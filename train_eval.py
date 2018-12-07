@@ -106,7 +106,7 @@ def main(args):
         file_path=FLAGS.file_path,
         image_train_path=FLAGS.image_train_path,
         image_test_path=FLAGS.image_test_path,
-        model=FLAGS.model,
+        model_architecture=FLAGS.model_architecture,
         tmp_data_path=FLAGS.tmp_data_path,
         batch_size=FLAGS.batch_size,
         nb_epochs=FLAGS.nb_epochs,
@@ -192,7 +192,7 @@ if __name__ == "__main__":
       default="",
       help="Path for storing the model checkpoints.")
   parser.add_argument(
-      "--model",
+      "--model_architecture",
       type=str,
       default="mobilenet",
       help="Model architecture.")
@@ -210,3 +210,4 @@ if __name__ == "__main__":
 
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
+
