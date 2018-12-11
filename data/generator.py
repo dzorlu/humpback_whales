@@ -2,11 +2,12 @@ import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
+
 import os
 import logging
 from collections import Counter
 from sklearn.model_selection import train_test_split
+from tensorflow.keras.applications.mobilenet import preprocess_input
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,124 +25,127 @@ def rgb2gray(rgb):
     return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
 
 
-def preprocess_fn(_img):
+def _preprocess_input(_img):
+    # [-1,1] range
+    _img /= 127.5
+    _img -= 1.
+    return _img
+
+def train_preprocess_fn(_img):
     # turn into grayscale
     if not is_grayscale(_img) and np.random.uniform(0, 1) > 0.5:
         _img = rgb2gray(_img)
-        return np.repeat(_img, 3).reshape(_img.shape + (3,))
-    else:
-        return _img
-
-
-def calculate_class_weights(labels, _type=None):
-    _counter = Counter(labels)
-    if _type == 'log':
-        chn = np.array(list(_counter.values()))
-        chn_ = np.log(chn + 1) / np.sum(np.log(chn + 1))
-        return {k: v for k, v in zip(_counter.keys(), chn_)}
-    elif _type == 'uniform':
-        _uniform = 1./len(_counter.values())
-        return {k: _uniform for k, v in _counter.keys()}
-    else:
-        return None
-
-
-def get_test_images_and_names(model_params):
-    _x = []
-    img_names = os.listdir(model_params.test_image_path)
-    filepaths = [os.path.join(model_params.test_image_path, img_name) for img_name in img_names]
-    for _path in filepaths:
-        _img = load_img(_path, target_size=model_params.image_dim)
-        _x.append(img_to_array(_img))
-    return np.stack(_x), img_names
+        _img = np.repeat(_img, 3).reshape(_img.shape + (3,))
+    _preprocess_input(_img)
 
 
 class Generator(object):
     def __init__(self,
                  file_path,
                  image_path,
+                 image_test_path,
                  batch_size,
+                 target_size=TARGET_SIZE,
                  validation_split=0.1,
                  random_state=42,
                  excluded_classes=['new_whale'],
                  class_weight_type='log',
                  **kwargs):
+        self.target_size = target_size
+        self.batch_size = batch_size
+        self.image_path = image_path
+        self.df = pd.read_csv(file_path)
+        self.df_val = None
+
+        def _get_test_images_and_names(image_test_path, target_size, ):
+            img_names = os.listdir(image_test_path)
+            filepaths = [os.path.join(image_test_path, img_name) for img_name in img_names]
+            _x = np.zeros((len(filepaths),) + TARGET_SIZE, dtype='float32')
+            for i, _path in enumerate(filepaths):
+                _img = load_img(_path, target_size=target_size)
+                _x[i] = img_to_array(_img)
+                if hasattr(_img, 'close'):
+                    _img.close()
+            return _x, img_names
+        #self.X_test, self.image_names_test = _get_test_images_and_names(image_test_path, self.target_size)
+
         logger.info('exclude_class: {}'.format(excluded_classes))
         logger.info('class_weight_type: {}'.format(class_weight_type))
-        self.X = None
-        self.y = None
-        self.X_val = None
-        self.y_val = None
-        self.batch_size = batch_size
-        _x, _y = [], []
-        df = pd.read_csv(file_path)
-        for _, _row in df.iterrows():
-            if not excluded_classes or _row.Id not in excluded_classes:
-                _path = os.path.join(image_path, _row.Image)
-                _img = load_img(_path, target_size=TARGET_SIZE)
-                _x.append(img_to_array(_img))
-                _y.append(_row.Id)
-        self.X = np.stack(_x)
-        del _x
 
-        encoder = LabelEncoder()
-        _y = encoder.fit_transform(_y)
-        self.encoder = encoder
-        self.y = np.stack(_y)
-        self._class_weights = calculate_class_weights(self.y, class_weight_type)
-
-        print("Generated %s Examples", len(self.X))
-        print("Generated %s Labels", len(self.y))
+        blacklisted_class_ix = self.df['Id'].isin(excluded_classes)
+        self.df = self.df[~blacklisted_class_ix]
+        logger.info("data has shape: {}".format(self.df.shape))
         if validation_split:
-            self.X, self.X_val, self.y, self.y_val = train_test_split(self.X,
-                                                                      self.y,
-                                                                      test_size=validation_split,
-                                                                      random_state=random_state)
-
+            self.df, self.df_val = train_test_split(self.df,
+                                                    test_size=validation_split,
+                                                    random_state=random_state)
+            self.df_val.reset_index(inplace=True, drop=True)
+        self.df.reset_index(inplace=True, drop=True)
+        logger.info("{} train: {} val".format(self.df.shape[0], self.df_val.shape[0]))
+        classes = list(self.df['Id'].unique())
+        self.class_indices = dict(zip(classes, range(len(classes))))
+        self.class_inv_indices = dict(zip(range(len(classes)), classes))
+        classes = self.df['Id'].values
+        self.classes = np.array([self.class_indices[cls] for cls in classes])
+        self._class_weights = self.calculate_class_weights(class_weight_type)
 
         # pass preprocess_fn
-        kwargs.update({'preprocessing_function': preprocess_fn})
+        kwargs.update({'preprocessing_function': _preprocess_input})
         logger.info(kwargs)
         self.image_generator = ImageDataGenerator(**kwargs)
-        self.image_generator.fit(self.X)
         # test data gen contains only normalization
-        inference_params = {'featurewise_center': True,
-                            'featurewise_std_normalization': True}
-        self.image_generator_inference = ImageDataGenerator(**inference_params)
-        self.image_generator_inference.fit(self.X)
+        self.image_generator_inference = ImageDataGenerator(preprocessing_function=_preprocess_input)
+
+    def calculate_class_weights(self, _type=None):
+        _counter = Counter(self.classes)
+        if _type == 'log':
+            w = np.array(list(_counter.values()))
+            w = np.log(1 + w)
+            w = max(w) / w
+        elif _type == 'balanced':
+            w = np.array(list(_counter.values()))
+            w = max(w) / w
+        else:
+            return None
+        return {k: v for k, v in zip(_counter.keys(), w)}
 
     def get_class_weights(self):
         return self._class_weights
 
     def get_nb_classes(self):
-        return len(self.encoder.classes_)
-
-    def get_image_dim(self):
-        return TARGET_SIZE
+        return len(self.class_indices)
 
     def get_train_generator(self):
         """ 
-        :return: NumpyArrayIterator
+        :return: DataFrameIterator
         """
-        return self.image_generator.flow(x=self.X,
-                                         y=self.y,
-                                         shuffle=True,
-                                         batch_size=self.batch_size)
+        return self.image_generator.flow_from_dataframe(dataframe=self.df,
+                                                        directory=self.image_path,
+                                                        x_col='Image',
+                                                        y_col='Id',
+                                                        target_size=self.target_size[:2],
+                                                        class_mode='categorical',
+                                                        shuffle=True,
+                                                        batch_size=self.batch_size)
 
     def get_eval_generator(self):
         """ 
-        :return: NumpyArrayIterator
+        :return: DataFrameIterator
         """
-        return self.image_generator.flow(x=self.X_val,
-                                         y=self.y_val,
-                                         shuffle=False,
-                                         batch_size=self.batch_size)
+        return self.image_generator.flow_from_dataframe(dataframe=self.df_val,
+                                                        directory=self.image_path,
+                                                        x_col='Image',
+                                                        y_col='Id',
+                                                        target_size=self.target_size[:2],
+                                                        class_mode='categorical',
+                                                        shuffle=True,
+                                                        batch_size=self.batch_size)
 
-    def get_test_generator(self, x):
+    def get_test_generator(self):
         """
         :param x: test data
         :return: NumpyArrayIterator
         """
-        return self.image_generator_inference.flow(x=x,
+        return self.image_generator_inference.flow(x=self.X_test,
                                                    shuffle=False,
                                                    batch_size=self.batch_size)

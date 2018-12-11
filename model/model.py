@@ -13,10 +13,10 @@ def create_model_fn(params):
     create model function and callbacks given the params
     :return:
     """
-    if params.input_dim not in [224, 128]:
+    if params.image_dim[0] not in [224, 128]:
         ValueError('hip to be square..')
     if params.model_architecture == 'mobilenet':
-        base_model = tf.keras.applications.mobilenet.MobileNet(input_shape=params.input_dim,
+        base_model = tf.keras.applications.mobilenet.MobileNet(input_shape=params.image_dim,
                                                                alpha=1.0,
                                                                depth_multiplier=1,
                                                                dropout=params.dropout,
@@ -26,13 +26,13 @@ def create_model_fn(params):
                                                                input_tensor=None,
                                                                pooling=None)
     elif params.model_architecture == 'resnet':
-        base_model = tf.keras.applications.resnet50.ResNet50(input_shape=params.input_dim,
+        base_model = tf.keras.applications.resnet50.ResNet50(input_shape=params.image_dim,
                                                              include_top=True,
                                                              weights=None,
                                                              classes=params.nb_classes)
     else:
         raise ValueError("architecture not defined.")
-    base_model.compile(optimizer=Adam(lr=params.learning_rate),
+    base_model.compile(optimizer=Adam(lr=params.lr_rate),
                        loss='categorical_crossentropy',
                        metrics=['categorical_accuracy', top_5_accuracy])
     tf.logging.info(base_model.summary())
