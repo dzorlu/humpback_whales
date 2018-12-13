@@ -67,7 +67,7 @@ def create_submission(generator, model, model_params):
     print("{} predictions persisted..".format(len(submission)))
 
 
-def get_callbacks(model_params,patience=5):
+def get_callbacks(model_params, patience=5):
     weight_path = "{}/{}_weights.best.hdf5".format(model_params.tmp_data_path, model_params.model_architecture)
 
     checkpoint = ModelCheckpoint(weight_path, monitor='val_loss', verbose=1,
@@ -85,14 +85,14 @@ def get_callbacks(model_params,patience=5):
                                         embeddings_layer_names=None,
                                         embeddings_metadata=None, embeddings_data=None)
     if model_params.lr_policy == 'range_test':
-        lr_policy = LearningRateRangeTest(total_nb_steps=model_params.total_nb_steps)
+        lr_policy = LearningRateRangeTest(total_nb_steps=model_params.total_nb_steps * 10)
     elif model_params.lr_policy == 'cosine_rate_policy':
         lr_policy = CosineLearninRatePolicy(total_nb_steps=model_params.total_nb_steps * 10,
                                             max_rate=model_params.lr_rate)
     else:
-        min_lr_rate = model_params.learning_rate / 10
+        min_lr_rate = model_params.lr_rate / 10
         lr_policy = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=patience,
-                                      verbose=1, mode='auto', cooldown=1, min_lr=min_lr_rate)
+                                      verbose=1, mode='auto', cooldown=3, min_lr=min_lr_rate)
     callbacks_list = [checkpoint, early]
     callbacks_list += [lr_policy]
     callbacks_list += [tensorboard]
@@ -209,7 +209,7 @@ if __name__ == "__main__":
   parser.add_argument(
       "--lr_rate",
       type=float,
-      default=1e-2)
+      default=5e-3)
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
 

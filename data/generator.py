@@ -6,7 +6,6 @@ import pandas as pd
 import os
 import logging
 from collections import Counter
-from sklearn.model_selection import train_test_split
 from tensorflow.keras.applications.mobilenet import preprocess_input
 
 logging.basicConfig(level=logging.INFO)
@@ -46,7 +45,7 @@ class Generator(object):
                  image_test_path,
                  batch_size,
                  target_size=TARGET_SIZE,
-                 validation_split=0.1,
+                 validation_split=0.0,
                  random_state=42,
                  excluded_classes=['new_whale'],
                  class_weight_type='log',
@@ -55,7 +54,6 @@ class Generator(object):
         self.batch_size = batch_size
         self.image_path = image_path
         self.df = pd.read_csv(file_path)
-        self.df_val = None
 
         def _get_test_images_and_names(image_test_path, target_size, ):
             img_names = os.listdir(image_test_path)
@@ -75,13 +73,7 @@ class Generator(object):
         blacklisted_class_ix = self.df['Id'].isin(excluded_classes)
         self.df = self.df[~blacklisted_class_ix]
         logger.info("data has shape: {}".format(self.df.shape))
-        if validation_split:
-            self.df, self.df_val = train_test_split(self.df,
-                                                    test_size=validation_split,
-                                                    random_state=random_state)
-            self.df_val.reset_index(inplace=True, drop=True)
-        self.df.reset_index(inplace=True, drop=True)
-        logger.info("{} train: {} val".format(self.df.shape[0], self.df_val.shape[0]))
+
         classes = list(self.df['Id'].unique())
         self.class_indices = dict(zip(classes, range(len(classes))))
         self.class_inv_indices = dict(zip(range(len(classes)), classes))
@@ -89,12 +81,10 @@ class Generator(object):
         self.classes = np.array([self.class_indices[cls] for cls in classes])
         self._class_weights = self.calculate_class_weights(class_weight_type)
 
-        # pass preprocess_fn
-        kwargs.update({'preprocessing_function': _preprocess_input})
+        # pass preprocess_fn and validation. Keras fn applies transformations to val data too. ugh.
+        kwargs.update({'preprocessing_function': _preprocess_input, 'validation_split': validation_split})
         logger.info(kwargs)
         self.image_generator = ImageDataGenerator(**kwargs)
-        # test data gen contains only normalization
-        self.image_generator_inference = ImageDataGenerator(preprocessing_function=_preprocess_input)
 
     def calculate_class_weights(self, _type=None):
         _counter = Counter(self.classes)
@@ -125,6 +115,7 @@ class Generator(object):
                                                         y_col='Id',
                                                         target_size=self.target_size[:2],
                                                         class_mode='categorical',
+                                                        subset='training',
                                                         shuffle=True,
                                                         batch_size=self.batch_size)
 
@@ -132,12 +123,13 @@ class Generator(object):
         """ 
         :return: DataFrameIterator
         """
-        return self.image_generator.flow_from_dataframe(dataframe=self.df_val,
+        return self.image_generator.flow_from_dataframe(dataframe=self.df,
                                                         directory=self.image_path,
                                                         x_col='Image',
                                                         y_col='Id',
                                                         target_size=self.target_size[:2],
                                                         class_mode='categorical',
+                                                        subset='validation',
                                                         shuffle=True,
                                                         batch_size=self.batch_size)
 
