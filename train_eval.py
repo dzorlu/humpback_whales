@@ -56,13 +56,19 @@ class CosineLearninRatePolicy(callbacks.Callback):
 
 
 def create_submission(generator, model, model_params):
-    test_generator = generator.get_test_generator()
+    x, img_names = generator.get_test_images_and_names()
+    test_generator = generator.get_test_generator(x)
     preds = model.predict_generator(test_generator)
-    preds = [generator.class_inv_indices(np.argsort(-1 * c_pred)[:5]) for c_pred in preds]
-    preds = [' '.join([col for col in row]) for row in preds]
-    submission = pd.DataFrame([generator.image_names_test, preds], columns=['Image', 'Id'])
+    preds_out = []
+    for c_pred in preds:
+        c_pred = np.argsort(-1 * c_pred)[:5]
+        preds_out.append([generator.class_inv_indices[p] for p in c_pred])
+    print(len(preds_out))
+    print(len(img_names))
+    preds = [' '.join([col for col in row]) for row in preds_out]
+    submission = pd.DataFrame(np.array([img_names, preds]).T, columns=['Image', 'Id'])
     ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    filepath = os.path.join(model_params.test_path, "submission_{}_{}.csv".format(model_params.model_architecture, ts))
+    filepath = os.path.join(model_params.image_test_path, "submission_{}_{}.csv".format(model_params.model_architecture, ts))
     submission.to_csv(filepath, index=False)
     print("{} predictions persisted..".format(len(submission)))
 
@@ -70,10 +76,11 @@ def create_submission(generator, model, model_params):
 def get_callbacks(model_params, patience=5):
     weight_path = "{}/{}_weights.best.hdf5".format(model_params.tmp_data_path, model_params.model_architecture)
 
-    checkpoint = ModelCheckpoint(weight_path, monitor='val_loss', verbose=1,
-                                 save_best_only=True, mode='min', period=1)
+    # checkpoint = ModelCheckpoint(weight_path, monitor='val_loss', verbose=1,
+    #                              save_best_only=True, mode='min', period=1)
 
-    early = EarlyStopping(monitor="val_loss",
+    early = EarlyStopping(monitor="loss",
+                          min_delta=0.3,
                           mode="min",
                           patience=patience*2)
 
@@ -93,7 +100,8 @@ def get_callbacks(model_params, patience=5):
         min_lr_rate = model_params.lr_rate / 10
         lr_policy = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=patience,
                                       verbose=1, mode='auto', cooldown=3, min_lr=min_lr_rate)
-    callbacks_list = [checkpoint, early]
+    callbacks_list = [early]
+    #callbacks_list = [checkpoint, early]
     callbacks_list += [lr_policy]
     callbacks_list += [tensorboard]
 
@@ -136,17 +144,17 @@ def main(args):
     model = create_model_fn(model_params)
     _callbacks, weight_path = get_callbacks(model_params)
     train_generator = gen.get_train_generator()
-    eval_generator = gen.get_eval_generator()
+    #eval_generator = gen.get_eval_generator()
 
     model.fit_generator(generator=train_generator,
-                        validation_data=eval_generator,
+                        #validation_data=eval_generator,
                         class_weight=model_params.class_weights,
                         epochs=model_params.nb_epochs,
                         callbacks=_callbacks)
     # evaluate
-    model.load_weights(weight_path)
-    eval_res = model.evaluate_generator(eval_generator)
-    print('Accuracy: %2.1f%%, Top 3 Accuracy %2.1f%%' % (100 * eval_res[1], 100 * eval_res[2]))
+    # model.load_weights(weight_path)
+    # eval_res = model.evaluate_generator(eval_generator)
+    # print('Accuracy: %2.1f%%, Top 3 Accuracy %2.1f%%' % (100 * eval_res[1], 100 * eval_res[2]))
 
     # test
     create_submission(gen, model, model_params)
@@ -178,7 +186,7 @@ if __name__ == "__main__":
   parser.add_argument(
       "--dropout",
       type=float,
-      default=0.3,
+      default=0.5,
       help="Dropout used for convolutions and bidi lstm layers.")
   parser.add_argument(
       "--batch_size",

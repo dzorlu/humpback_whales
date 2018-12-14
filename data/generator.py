@@ -69,6 +69,7 @@ class Generator(object):
         classes = list(self.df['Id'].unique())
         self.class_indices = dict(zip(classes, range(len(classes))))
         self.class_inv_indices = dict(zip(range(len(classes)), classes))
+        logger.info(self.class_inv_indices)
         classes = self.df['Id'].values
         self.classes = np.array([self.class_indices[cls] for cls in classes])
         self._class_weights = self.calculate_class_weights(class_weight_type)
