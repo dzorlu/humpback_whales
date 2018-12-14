@@ -53,18 +53,10 @@ class Generator(object):
         self.target_size = target_size
         self.batch_size = batch_size
         self.image_path = image_path
+        self.image_test_path = image_test_path
         self.df = pd.read_csv(file_path)
 
-        def _get_test_images_and_names(image_test_path, target_size, ):
-            img_names = os.listdir(image_test_path)
-            filepaths = [os.path.join(image_test_path, img_name) for img_name in img_names]
-            _x = np.zeros((len(filepaths),) + TARGET_SIZE, dtype='float32')
-            for i, _path in enumerate(filepaths):
-                _img = load_img(_path, target_size=target_size)
-                _x[i] = img_to_array(_img)
-                if hasattr(_img, 'close'):
-                    _img.close()
-            return _x, img_names
+
         #self.X_test, self.image_names_test = _get_test_images_and_names(image_test_path, self.target_size)
 
         logger.info('exclude_class: {}'.format(excluded_classes))
@@ -85,6 +77,18 @@ class Generator(object):
         kwargs.update({'preprocessing_function': _preprocess_input, 'validation_split': validation_split})
         logger.info(kwargs)
         self.image_generator = ImageDataGenerator(**kwargs)
+        self.image_generator_inference = ImageDataGenerator(preprocessing_function=_preprocess_input)
+
+    def get_test_images_and_names(self):
+        img_names = os.listdir(self.image_test_path)
+        filepaths = [os.path.join(self.image_test_path, img_name) for img_name in img_names]
+        _x = np.zeros((len(filepaths),) + self.target_size, dtype='float32')
+        for i, _path in enumerate(filepaths):
+            _img = load_img(_path, target_size=self.target_size)
+            _x[i] = img_to_array(_img)
+            if hasattr(_img, 'close'):
+                _img.close()
+        return _x, img_names
 
     def calculate_class_weights(self, _type=None):
         _counter = Counter(self.classes)
@@ -133,11 +137,11 @@ class Generator(object):
                                                         shuffle=True,
                                                         batch_size=self.batch_size)
 
-    def get_test_generator(self):
+    def get_test_generator(self, x):
         """
         :param x: test data
         :return: NumpyArrayIterator
         """
-        return self.image_generator_inference.flow(x=self.X_test,
+        return self.image_generator_inference.flow(x=x,
                                                    shuffle=False,
                                                    batch_size=self.batch_size)
