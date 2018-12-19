@@ -122,6 +122,8 @@ def main(args):
         lr_policy=FLAGS.lr_policy,
         nb_layers_to_freeze=FLAGS.nb_layers_to_freeze,
         pretrained=FLAGS.pretrained,
+        loss=FLAGS.loss,
+        embedding_hidden_dim=FLAGS.embedding_hidden_dim,
         dropout=FLAGS.dropout)
     print(model_params)
     #
@@ -165,7 +167,17 @@ def main(args):
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
-  parser.register("type", "bool", lambda v: v.lower() == "true")
+  parser.add_argument(
+      "--loss",
+      type=str,
+      choices=['categorical_crossentropy', 'triplet_semihard_loss'],
+      default="",
+      help="Loss type / Model")
+  parser.add_argument(
+      "--embedding_hidden_dim",
+      type=int,
+      default=128,
+      help="Hidden dim")
   parser.add_argument(
       "--file_path",
       type=str,
