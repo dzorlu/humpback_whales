@@ -5,7 +5,7 @@ import datetime
 import os
 
 import tensorflow as tf
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.callbacks import  ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras import callbacks
 from tensorflow.python.keras import backend as K
 import numpy as np
@@ -61,28 +61,29 @@ def create_submission(generator, model, model_params):
     preds = model.predict_generator(test_generator)
     preds_out = []
     for c_pred in preds:
-        c_pred = np.argsort(-1 * c_pred)[:5]
+        c_pred = np.argsort(-1 * c_pred)[:4]
         preds_out.append([generator.class_inv_indices[p] for p in c_pred])
+        preds_out.append(['new_whale'])
     print(len(preds_out))
     print(len(img_names))
     preds = [' '.join([col for col in row]) for row in preds_out]
     submission = pd.DataFrame(np.array([img_names, preds]).T, columns=['Image', 'Id'])
     ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    filepath = os.path.join(model_params.image_test_path, "submission_{}_{}.csv".format(model_params.model_architecture, ts))
+    filepath = os.path.join(model_params.tmp_data_path, "submission_{}_{}.csv".format(model_params.model_architecture, ts))
     submission.to_csv(filepath, index=False)
     print("{} predictions persisted..".format(len(submission)))
 
 
-def get_callbacks(model_params, patience=5):
+def get_callbacks(model_params, patience=2):
     weight_path = "{}/{}_weights.best.hdf5".format(model_params.tmp_data_path, model_params.model_architecture)
 
-    # checkpoint = ModelCheckpoint(weight_path, monitor='val_loss', verbose=1,
-    #                              save_best_only=True, mode='min', period=1)
+    checkpoint = ModelCheckpoint(weight_path, monitor='loss', verbose=1,
+                                 save_best_only=True, mode='min', period=1)
 
     early = EarlyStopping(monitor="loss",
-                          min_delta=0.3,
+                          min_delta=0.0,
                           mode="min",
-                          patience=patience*2)
+                          patience=patience*3)
 
     tensorboard = callbacks.TensorBoard(log_dir=model_params.tmp_data_path,
                                         histogram_freq=0,
@@ -100,8 +101,8 @@ def get_callbacks(model_params, patience=5):
         min_lr_rate = model_params.lr_rate / 10
         lr_policy = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=patience,
                                       verbose=1, mode='auto', cooldown=3, min_lr=min_lr_rate)
-    callbacks_list = [early]
-    #callbacks_list = [checkpoint, early]
+    #callbacks_list = [early]
+    callbacks_list = [checkpoint, early]
     callbacks_list += [lr_policy]
     callbacks_list += [tensorboard]
 
@@ -119,6 +120,7 @@ def main(args):
         nb_epochs=FLAGS.nb_epochs,
         lr_rate=FLAGS.lr_rate,
         lr_policy=FLAGS.lr_policy,
+        nb_layers_to_freeze=FLAGS.nb_layers_to_freeze,
         dropout=FLAGS.dropout)
     print(model_params)
     #
@@ -152,7 +154,7 @@ def main(args):
                         epochs=model_params.nb_epochs,
                         callbacks=_callbacks)
     # evaluate
-    # model.load_weights(weight_path)
+    model.load_weights(weight_path)
     # eval_res = model.evaluate_generator(eval_generator)
     # print('Accuracy: %2.1f%%, Top 3 Accuracy %2.1f%%' % (100 * eval_res[1], 100 * eval_res[2]))
 
@@ -218,6 +220,10 @@ if __name__ == "__main__":
       "--lr_rate",
       type=float,
       default=5e-3)
+  parser.add_argument(
+      "--nb_layers_to_freeze",
+      type=int,
+      default=0)
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
 

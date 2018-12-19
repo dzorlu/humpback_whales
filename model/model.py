@@ -32,6 +32,11 @@ def create_model_fn(params):
                                                              classes=params.nb_classes)
     else:
         raise ValueError("architecture not defined.")
+    if params.nb_layers_to_freeze:
+        for i, layer in enumerate(base_model.layers):
+            if i < params.nb_layers_to_freeze:
+                layer.trainable = False
+        print("{} out of {} layers frozen..".format(params.nb_layers_to_freeze, i))
     base_model.compile(optimizer=Adam(lr=params.lr_rate),
                        loss='categorical_crossentropy',
                        metrics=['categorical_accuracy', top_5_accuracy])
