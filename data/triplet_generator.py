@@ -16,11 +16,13 @@ logger = logging.getLogger(__name__)
 
 TARGET_SIZE = (224, 224, 3)
 
+
 def _preprocess_input(_img):
     # [-1,1] range
     _img /= 127.5
     _img -= 1.
     return _img
+
 
 class TripletGenerator(Sequence):
     def __init__(self,
@@ -98,7 +100,7 @@ class TripletGenerator(Sequence):
             if len(filenames) > self.nb_images_per_class_batch:
                 np.random.shuffle(filenames)
                 filenames = filenames[:self.nb_images_per_class_batch]
-            logger.info("{} files for class {}".format(len(filenames), class_ix))
+            logger.debug("{} files for class {}".format(len(filenames), class_ix))
             for j, filename in enumerate(filenames):
                 img = load_img(os.path.join(self.image_path, filename),
                                target_size=self.target_size)
@@ -119,11 +121,12 @@ class TripletGenerator(Sequence):
                 x = self.image_generator.apply_transform(x, params)
                 x = self.image_generator.standardize(x)
                 _samples[j + k + 1] = x
-            logger.info("{} transformations for class {}".format(nb_missing, class_ix))
+            logger.debug("{} transformations for class {}".format(nb_missing, class_ix))
             batch_x.append(_samples)
         batch_x = np.vstack(batch_x)
         # build batch of labels
         batch_y = np.repeat(index_array, self.nb_images_per_class_batch)
+        assert len(batch_y), len(batch_x)
         batch_y = to_categorical(batch_y, num_classes=len(self.class_indices))
         return batch_x, batch_y
 
