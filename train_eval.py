@@ -121,6 +121,7 @@ def main(args):
         lr_rate=FLAGS.lr_rate,
         lr_policy=FLAGS.lr_policy,
         nb_layers_to_freeze=FLAGS.nb_layers_to_freeze,
+        pretrained=FLAGS.pretrained,
         dropout=FLAGS.dropout)
     print(model_params)
     #
@@ -150,7 +151,7 @@ def main(args):
 
     model.fit_generator(generator=train_generator,
                         #validation_data=eval_generator,
-                        class_weight=model_params.class_weights,
+                        #class_weight=model_params.class_weights,
                         epochs=model_params.nb_epochs,
                         callbacks=_callbacks)
     # evaluate
@@ -224,6 +225,12 @@ if __name__ == "__main__":
       "--nb_layers_to_freeze",
       type=int,
       default=0)
+  parser.add_argument(
+      "--pretrained",
+      type=bool,
+      default=False
+  )
+
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
 
