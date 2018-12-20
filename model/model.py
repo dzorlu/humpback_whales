@@ -23,7 +23,7 @@ def create_model_fn(params):
     """
     if params.image_dim[0] not in [224, 128]:
         ValueError('hip to be square..')
-    if params.nb_layers_to_freeze and not params.pretrained:
+    if (params.nb_layers_to_freeze and not params.pretrained) or (params.nb_layers_to_freeze == 0 and params.pretrained):
         ValueError('set the pretrained to TRUE if nb_layers_to_freeze is specified')
     if params.loss == 'triplet_semihard_loss' and not params.embedding_hidden_dim:
         ValueError('set the embedding_hidden_dim if triplet_semihard_loss is specified')
@@ -69,6 +69,8 @@ def create_model_fn(params):
         # TODO: TENSORBOARD
         model = Model(inputs=base_model.input, outputs=x)
     elif params.pretrained:
+        logger.info("append the top to the structure..")
+        # TODO: COULD BE PRETRAINED AND TTIPLET
         _loss = 'categorical_crossentropy'
         x = base_model.output
         x = layers.GlobalAveragePooling2D()(x)
@@ -81,6 +83,7 @@ def create_model_fn(params):
         x = layers.Reshape((params.nb_classes,), name='reshape_2')(x)
         x = layers.Activation('softmax', name='act_softmax')(x)
         model = Model(inputs=base_model.input, outputs=x)
+        print(model.layers)
     else:
         _loss = 'categorical_crossentropy'
         model = base_model
@@ -94,5 +97,5 @@ def create_model_fn(params):
     model.compile(optimizer=Adam(lr=params.lr_rate),
                   loss=_loss,
                   metrics=['categorical_accuracy', top_5_accuracy])
-    tf.logging.info(base_model.summary())
+    tf.logging.info(model.summary())
     return model

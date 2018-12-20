@@ -63,7 +63,7 @@ def create_submission(generator, model, model_params):
     for c_pred in preds:
         c_pred = np.argsort(-1 * c_pred)[:4]
         preds_out.append([generator.class_inv_indices[p] for p in c_pred])
-        preds_out.append(['new_whale'])
+        preds_out.extend(['new_whale'])
     print(len(preds_out))
     print(len(img_names))
     preds = [' '.join([col for col in row]) for row in preds_out]
