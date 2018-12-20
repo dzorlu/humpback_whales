@@ -14,6 +14,7 @@ import pandas as pd
 
 from model.model import create_model_fn
 from data.generator import Generator
+from data.triplet_generator import TripletGenerator
 
 
 class LearningRateRangeTest(callbacks.Callback):
@@ -45,23 +46,30 @@ class CosineLearninRatePolicy(callbacks.Callback):
 
     def on_train_begin(self, logs=None):
         K.set_value(self.model.optimizer.lr, self.max_rate)
+        # for tensorboard
         logs['lr'] = np.float64(self.max_rate)
 
     def on_batch_end(self, batch, logs=None):
         self.steps_taken += 1
         _scaler = (1 + np.cos(np.pi * self.steps_taken / self.cycle_length)) / 2
         _lr = self.base_rate + (self.max_rate - self.base_rate) * _scaler
+        # for tensorboard
         logs['lr'] = np.float64(_lr)
         K.set_value(self.model.optimizer.lr, _lr)
 
 
-def create_submission(generator, model, model_params):
+def create_submission(generator, model, model_params, nn_classifier=None):
     x, img_names = generator.get_test_images_and_names()
+    # no shuffling ensures order
     test_generator = generator.get_test_generator(x)
     preds = model.predict_generator(test_generator)
     preds_out = []
+    if model_params.loss == 'triplet_semihard_loss':
+        # postprocessing step with NN classifier.
+        preds = nn_classifier.predict(preds)
     for c_pred in preds:
         c_pred = np.argsort(-1 * c_pred)[:4]
+        # this always appends 'new whale'.
         preds_out.append([generator.class_inv_indices[p] for p in c_pred]+['new_whale'])
     print(len(preds_out))
     print(len(img_names))
@@ -76,20 +84,26 @@ def create_submission(generator, model, model_params):
 def get_callbacks(model_params, patience=2):
     weight_path = "{}/{}_weights.best.hdf5".format(model_params.tmp_data_path, model_params.model_architecture)
 
-    checkpoint = ModelCheckpoint(weight_path, monitor='loss', verbose=1,
+    checkpoint = ModelCheckpoint(weight_path, monitor='val_loss', verbose=1,
                                  save_best_only=True, mode='min', period=1)
 
-    early = EarlyStopping(monitor="loss",
+    early = EarlyStopping(monitor="val_loss",
                           min_delta=0.0,
                           mode="min",
                           patience=patience*3)
+
+    embeddings_freq = 0
+    embeddings_layer_names = None
+    if model_params.loss == 'triplet_semihard_loss':
+        embeddings_freq = 1
+        embeddings_layer_names = 'conv_embedding_norm'
 
     tensorboard = callbacks.TensorBoard(log_dir=model_params.tmp_data_path,
                                         histogram_freq=0,
                                         batch_size=model_params.batch_size,
                                         write_graph=True, write_grads=False,
-                                        write_images=False, embeddings_freq=0,
-                                        embeddings_layer_names=None,
+                                        write_images=False, embeddings_freq=embeddings_freq,
+                                        embeddings_layer_names=embeddings_layer_names,
                                         embeddings_metadata=None, embeddings_data=None)
     if model_params.lr_policy == 'range_test':
         lr_policy = LearningRateRangeTest(total_nb_steps=model_params.total_nb_steps * 10)
@@ -100,9 +114,9 @@ def get_callbacks(model_params, patience=2):
         min_lr_rate = model_params.lr_rate / 10
         lr_policy = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=patience,
                                       verbose=1, mode='auto', cooldown=3, min_lr=min_lr_rate)
-    #callbacks_list = [early]
     callbacks_list = [checkpoint, early]
     callbacks_list += [lr_policy]
+    # tensorboard evaluated last bc it reads appended logs dict
     callbacks_list += [tensorboard]
 
     return callbacks_list, weight_path
@@ -135,33 +149,89 @@ def main(args):
         'zoom_range': 0.2,
         'shear_range': 0.4,
        }
-    gen = Generator(file_path=model_params.file_path,
-                    image_path=model_params.image_train_path,
-                    image_test_path=model_params.image_test_path,
-                    batch_size=model_params.batch_size,
-                    **data_params)
-    model_params.add_hparam('nb_classes', gen.get_nb_classes())
-    model_params.add_hparam('image_dim', gen.target_size)
-    model_params.add_hparam('class_weights', gen.get_class_weights())
-    model_params.add_hparam('total_nb_steps', len(gen.get_train_generator()))
 
-    model = create_model_fn(model_params)
+    # fetch different generator based on loss type
+    if model_params.loss != 'triplet_semihard_loss':
+        gen = Generator(file_path=model_params.file_path,
+                        image_path=model_params.image_train_path,
+                        image_test_path=model_params.image_test_path,
+                        batch_size=model_params.batch_size,
+                        **data_params)
+        model_params.add_hparam('nb_classes', gen.get_nb_classes())
+        model_params.add_hparam('image_dim', gen.target_size)
+        model_params.add_hparam('class_weights', gen.get_class_weights())
+        model_params.add_hparam('total_nb_steps', len(gen.get_train_generator()))
+        train_generator = gen.get_train_generator()
+        eval_generator = gen.get_eval_generator()
+    else:
+        train_generator = TripletGenerator(file_path=model_params.file_path,
+                                           image_path=model_params.image_train_path,
+                                           image_test_path=model_params.image_test_path,
+                                           nb_classes_batch=6,
+                                           nb_images_per_class_batch=5,
+                                           validation_split=0.2,
+                                           subset='training',
+                                           **data_params)
+        eval_generator = TripletGenerator(file_path=model_params.file_path,
+                                          image_path=model_params.image_train_path,
+                                          image_test_path=model_params.image_test_path,
+                                          nb_classes_batch=8,
+                                          nb_images_per_class_batch=4,
+                                          validation_split=0.2,
+                                          subset='eval',
+                                          **data_params)
+        model_params.add_hparam('nb_classes', train_generator.get_nb_classes())
+        model_params.add_hparam('image_dim', train_generator.target_size)
+        model_params.add_hparam('class_weights', None)
+        model_params.add_hparam('total_nb_steps', len(train_generator))
+
     _callbacks, weight_path = get_callbacks(model_params)
-    train_generator = gen.get_train_generator()
-    #eval_generator = gen.get_eval_generator()
+    model = create_model_fn(model_params)
 
     model.fit_generator(generator=train_generator,
-                        #validation_data=eval_generator,
-                        #class_weight=model_params.class_weights,
+                        validation_data=eval_generator,
+                        use_multiprocessing=True,
                         epochs=model_params.nb_epochs,
                         callbacks=_callbacks)
     # evaluate
     model.load_weights(weight_path)
-    # eval_res = model.evaluate_generator(eval_generator)
-    # print('Accuracy: %2.1f%%, Top 3 Accuracy %2.1f%%' % (100 * eval_res[1], 100 * eval_res[2]))
+    eval_res = model.evaluate_generator(eval_generator)
+    print('Accuracy: %2.1f%%, Top 3 Accuracy %2.1f%%' % (100 * eval_res[1], 100 * eval_res[2]))
+
+    neigh = None
+    if model_params.loss != 'triplet_semihard_loss':
+        from sklearn.neighbors import KNeighborsClassifier
+        nb_neighbors = 3
+        neigh = KNeighborsClassifier(nb_neighbors)
+        # need to train a NN classifier with embeddings for inference at test time.
+        # no augmentation
+        gen = Generator(file_path=model_params.file_path,
+                        image_path=model_params.image_train_path,
+                        image_test_path=model_params.image_test_path,
+                        batch_size=model_params.batch_size)
+        classes = gen.classes
+        # this need to line up with labels. hence no shuffle.
+        _generator = gen.get_train_generator(shuffle=False)
+        predictions = model.predict_generator(_generator)
+        # augment on
+        gen = Generator(file_path=model_params.file_path,
+                        image_path=model_params.image_train_path,
+                        image_test_path=model_params.image_test_path,
+                        batch_size=model_params.batch_size,
+                        **data_params)
+        _classes = gen.classes
+        # this need to line up with labels. hence no shuffle.
+        _generator = gen.get_train_generator(shuffle=False)
+        _predictions = model.predict_generator(_generator)
+        # append
+        predictions.extend(_predictions)
+        classes.extend(_classes)
+        # fit
+        neigh.fit(predictions, classes)
+
 
     # test
-    create_submission(gen, model, model_params)
+    create_submission(gen, model, model_params, neigh)
 
 
 if __name__ == "__main__":
@@ -181,7 +251,7 @@ if __name__ == "__main__":
       "--file_path",
       type=str,
       default="",
-      help="Path to training/eval/test data")
+      help="Path to training data dataframe")
   parser.add_argument(
       "--image_train_path",
       type=str,
@@ -206,7 +276,7 @@ if __name__ == "__main__":
       "--batch_size",
       type=int,
       default=128,
-      help="Batch size to use for training/evaluation.")
+      help="Batch size to use for training/evaluation. Not valid for one-shot-learning")
   parser.add_argument(
       "--model_dir",
       type=str,

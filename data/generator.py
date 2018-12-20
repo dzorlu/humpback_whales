@@ -6,7 +6,6 @@ import pandas as pd
 import os
 import logging
 from collections import Counter
-from tensorflow.keras.applications.mobilenet import preprocess_input
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,9 +45,8 @@ class Generator(object):
                  batch_size,
                  target_size=TARGET_SIZE,
                  validation_split=0.0,
-                 random_state=42,
                  excluded_classes=['new_whale'],
-                 class_weight_type='log',
+                 class_weight_type=None,
                  **kwargs):
         self.target_size = target_size
         self.batch_size = batch_size
@@ -67,10 +65,12 @@ class Generator(object):
         logger.info("data has shape: {}".format(self.df.shape))
 
         classes = list(self.df['Id'].unique())
+        # class_name -> int
         self.class_indices = dict(zip(classes, range(len(classes))))
+        # int -> class_name
         self.class_inv_indices = dict(zip(range(len(classes)), classes))
-        #logger.info(self.class_inv_indices)
         classes = self.df['Id'].values
+
         self.classes = np.array([self.class_indices[cls] for cls in classes])
         self._class_weights = self.calculate_class_weights(class_weight_type)
 
@@ -110,7 +110,7 @@ class Generator(object):
     def get_nb_classes(self):
         return len(self.class_indices)
 
-    def get_train_generator(self):
+    def get_train_generator(self, shuffle=True):
         """ 
         :return: DataFrameIterator
         """
@@ -121,11 +121,12 @@ class Generator(object):
                                                         target_size=self.target_size[:2],
                                                         class_mode='categorical',
                                                         subset='training',
-                                                        shuffle=True,
+                                                        shuffle=shuffle,
                                                         batch_size=self.batch_size)
 
     def get_eval_generator(self):
         """ 
+        does augmentation too.
         :return: DataFrameIterator
         """
         return self.image_generator.flow_from_dataframe(dataframe=self.df,

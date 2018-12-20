@@ -33,6 +33,7 @@ def create_model_fn(params):
         logger.info('pretrained..')
         _include_top = False
         _weights = 'imagenet'
+    # Define the top of the architecture
     if params.model_architecture == 'mobilenet':
         base_model = tf.keras.applications.mobilenet.MobileNet(input_shape=params.image_dim,
                                                                alpha=1.0,
@@ -52,6 +53,7 @@ def create_model_fn(params):
         reshape_size = 2048
     else:
         raise ValueError("architecture not defined.")
+    # If triplet loss, complete the structure
     if params.loss == 'triplet_semihard_loss':
         _loss = triplet_semihard_loss
         x = base_model.output
@@ -65,12 +67,14 @@ def create_model_fn(params):
                           name='conv_embedding')(x)
         # l2 normalize
         x = layers.Reshape((params.embedding_hidden_dim,), name='reshape_2')(x)
-        x = layers.Lambda(lambda _x: tf.keras.backend.l2_normalize(_x, axis=1))(x)
-        # TODO: TENSORBOARD
+        x = layers.Lambda(lambda _x: tf.keras.backend.l2_normalize(_x, axis=1),
+                          name='conv_embedding_norm')(x)
         model = Model(inputs=base_model.input, outputs=x)
+        logger.info(model.outputs)
+        logger.info(model.targets)
+    # Complete the rest of the architecture if pretrained weights are loaded.
     elif params.pretrained:
         logger.info("append the top to the structure..")
-        # TODO: COULD BE PRETRAINED AND TTIPLET
         _loss = 'categorical_crossentropy'
         x = base_model.output
         x = layers.GlobalAveragePooling2D()(x)
@@ -84,6 +88,7 @@ def create_model_fn(params):
         x = layers.Activation('softmax', name='act_softmax')(x)
         model = Model(inputs=base_model.input, outputs=x)
     else:
+        # If neither, entire structure is defined.
         _loss = 'categorical_crossentropy'
         model = base_model
 
