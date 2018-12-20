@@ -7,6 +7,11 @@ from tensorflow.keras import layers
 from tensorflow.keras.models import Model
 from tensorflow.contrib.losses.python.metric_learning import triplet_semihard_loss
 
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 def top_5_accuracy(x, y): return top_k_categorical_accuracy(x, y, 5)
 
@@ -25,6 +30,7 @@ def create_model_fn(params):
     _include_top = True
     _weights = None
     if params.pretrained:
+        logger.info('pretrained..')
         _include_top = False
         _weights = 'imagenet'
     if params.model_architecture == 'mobilenet':
@@ -76,13 +82,14 @@ def create_model_fn(params):
         x = layers.Activation('softmax', name='act_softmax')(x)
         model = Model(inputs=base_model.input, outputs=x)
     else:
+        _loss = 'categorical_crossentropy'
         model = base_model
 
     if params.nb_layers_to_freeze:
         for i, layer in enumerate(model.layers):
             if i < params.nb_layers_to_freeze:
                 layer.trainable = False
-        print("{} out of {} layers frozen..".format(params.nb_layers_to_freeze, i))
+        logger.info("{} out of {} layers frozen..".format(params.nb_layers_to_freeze, i))
 
     model.compile(optimizer=Adam(lr=params.lr_rate),
                   loss=_loss,
