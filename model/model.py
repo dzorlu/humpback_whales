@@ -83,7 +83,6 @@ def create_model_fn(params):
         x = layers.Reshape((params.nb_classes,), name='reshape_2')(x)
         x = layers.Activation('softmax', name='act_softmax')(x)
         model = Model(inputs=base_model.input, outputs=x)
-        print(model.layers)
     else:
         _loss = 'categorical_crossentropy'
         model = base_model
