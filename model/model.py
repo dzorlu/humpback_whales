@@ -55,7 +55,7 @@ def create_model_fn(params):
         raise ValueError("architecture not defined.")
     # If triplet loss, complete the structure
     if params.loss == 'triplet_semihard_loss':
-        _loss = triplet_semihard_loss
+
         x = base_model.output
         x = layers.GlobalAveragePooling2D()(x)
         shape = (1, 1, int(reshape_size * 1.0))
@@ -70,8 +70,13 @@ def create_model_fn(params):
         x = layers.Lambda(lambda _x: tf.keras.backend.l2_normalize(_x, axis=1),
                           name='conv_embedding_norm')(x)
         model = Model(inputs=base_model.input, outputs=x)
-        logger.info(model.outputs)
-        logger.info(model.targets)
+
+        def _loss_fn(y_true, y_pred):
+            y_true = tf.keras.backend.argmax(y_true, axis=-1)
+            return triplet_semihard_loss(labels=y_true,
+                                         embeddings=y_pred,
+                                         margin=params.triplet_margin)
+        _loss = _loss_fn
     # Complete the rest of the architecture if pretrained weights are loaded.
     elif params.pretrained:
         logger.info("append the top to the structure..")
@@ -88,7 +93,7 @@ def create_model_fn(params):
         x = layers.Activation('softmax', name='act_softmax')(x)
         model = Model(inputs=base_model.input, outputs=x)
     else:
-        # If neither, entire structure is defined.
+        # If neither, entire structure is defined already.
         _loss = 'categorical_crossentropy'
         model = base_model
 
@@ -96,10 +101,13 @@ def create_model_fn(params):
         for i, layer in enumerate(model.layers):
             if i < params.nb_layers_to_freeze:
                 layer.trainable = False
+            else:
+                logger.info(layer.name)
         logger.info("{} out of {} layers frozen..".format(params.nb_layers_to_freeze, i))
 
     model.compile(optimizer=Adam(lr=params.lr_rate),
                   loss=_loss,
-                  metrics=['categorical_accuracy', top_5_accuracy])
+                  #metrics=['categorical_accuracy', top_5_accuracy]
+                  )
     tf.logging.info(model.summary())
     return model

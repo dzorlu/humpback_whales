@@ -63,10 +63,12 @@ def create_submission(generator, model, model_params, nn_classifier=None):
     # no shuffling ensures order
     test_generator = generator.get_test_generator(x)
     preds = model.predict_generator(test_generator)
+    _path = model_params.tmp_data_path + 'preds_test.npy'
+    np.save(_path, preds)
     preds_out = []
     if model_params.loss == 'triplet_semihard_loss':
         # postprocessing step with NN classifier.
-        preds = nn_classifier.predict(preds)
+        preds = nn_classifier.predict_proba(preds)
     for c_pred in preds:
         c_pred = np.argsort(-1 * c_pred)[:4]
         # this always appends 'new whale'.
@@ -82,7 +84,7 @@ def create_submission(generator, model, model_params, nn_classifier=None):
 
 
 def get_callbacks(model_params, patience=2):
-    weight_path = "{}/{}_weights.best.hdf5".format(model_params.tmp_data_path, model_params.model_architecture)
+    weight_path = model_params.tmp_data_path + "{}_{}_weights.best.hdf5".format(model_params.loss, model_params.model_architecture)
 
     checkpoint = ModelCheckpoint(weight_path, monitor='val_loss', verbose=1,
                                  save_best_only=True, mode='min', period=1)
@@ -96,13 +98,13 @@ def get_callbacks(model_params, patience=2):
     embeddings_layer_names = None
     if model_params.loss == 'triplet_semihard_loss':
         embeddings_freq = 1
-        embeddings_layer_names = 'conv_embedding_norm'
+        embeddings_layer_names = ['conv_embedding_norm']
 
     tensorboard = callbacks.TensorBoard(log_dir=model_params.tmp_data_path,
                                         histogram_freq=0,
                                         batch_size=model_params.batch_size,
                                         write_graph=True, write_grads=False,
-                                        write_images=False, embeddings_freq=embeddings_freq,
+                                        write_images=False,
                                         embeddings_layer_names=embeddings_layer_names,
                                         embeddings_metadata=None, embeddings_data=None)
     if model_params.lr_policy == 'range_test':
@@ -124,6 +126,7 @@ def get_callbacks(model_params, patience=2):
 
 def main(args):
     model_params = tf.contrib.training.HParams(
+        fit=FLAGS.fit,
         file_path=FLAGS.file_path,
         image_train_path=FLAGS.image_train_path,
         image_test_path=FLAGS.image_test_path,
@@ -137,6 +140,7 @@ def main(args):
         pretrained=FLAGS.pretrained,
         loss=FLAGS.loss,
         embedding_hidden_dim=FLAGS.embedding_hidden_dim,
+        triplet_margin=FLAGS.triplet_margin,
         dropout=FLAGS.dropout)
     print(model_params)
     #
@@ -146,7 +150,7 @@ def main(args):
         'rotation_range': 20,
         'width_shift_range': 0.1,
         'height_shift_range': 0.1,
-        'zoom_range': 0.2,
+        'zoom_range': 0.3,
         'shear_range': 0.4,
        }
 
@@ -167,15 +171,15 @@ def main(args):
         train_generator = TripletGenerator(file_path=model_params.file_path,
                                            image_path=model_params.image_train_path,
                                            image_test_path=model_params.image_test_path,
-                                           nb_classes_batch=6,
-                                           nb_images_per_class_batch=5,
+                                           nb_classes_batch=16,
+                                           nb_images_per_class_batch=4,
                                            validation_split=0.2,
                                            subset='training',
                                            **data_params)
         eval_generator = TripletGenerator(file_path=model_params.file_path,
                                           image_path=model_params.image_train_path,
                                           image_test_path=model_params.image_test_path,
-                                          nb_classes_batch=8,
+                                          nb_classes_batch=16,
                                           nb_images_per_class_batch=4,
                                           validation_split=0.2,
                                           subset='eval',
@@ -188,18 +192,19 @@ def main(args):
     _callbacks, weight_path = get_callbacks(model_params)
     model = create_model_fn(model_params)
 
-    model.fit_generator(generator=train_generator,
-                        validation_data=eval_generator,
-                        use_multiprocessing=True,
-                        epochs=model_params.nb_epochs,
-                        callbacks=_callbacks)
+    if model_params.fit:
+        model.fit_generator(generator=train_generator,
+                            validation_data=eval_generator,
+                            use_multiprocessing=True,
+                            epochs=model_params.nb_epochs,
+                            callbacks=_callbacks)
     # evaluate
     model.load_weights(weight_path)
     eval_res = model.evaluate_generator(eval_generator)
-    print('Accuracy: %2.1f%%, Top 3 Accuracy %2.1f%%' % (100 * eval_res[1], 100 * eval_res[2]))
+    print('eval {}'.format(eval_res))
 
     neigh = None
-    if model_params.loss != 'triplet_semihard_loss':
+    if model_params.loss == 'triplet_semihard_loss':
         from sklearn.neighbors import KNeighborsClassifier
         nb_neighbors = 3
         neigh = KNeighborsClassifier(nb_neighbors)
@@ -209,26 +214,30 @@ def main(args):
                         image_path=model_params.image_train_path,
                         image_test_path=model_params.image_test_path,
                         batch_size=model_params.batch_size)
-        classes = gen.classes
+        classes = list(gen.classes)
         # this need to line up with labels. hence no shuffle.
         _generator = gen.get_train_generator(shuffle=False)
-        predictions = model.predict_generator(_generator)
+        predictions = list(model.predict_generator(_generator))
         # augment on
         gen = Generator(file_path=model_params.file_path,
                         image_path=model_params.image_train_path,
                         image_test_path=model_params.image_test_path,
                         batch_size=model_params.batch_size,
                         **data_params)
-        _classes = gen.classes
+        classes += list(gen.classes)
         # this need to line up with labels. hence no shuffle.
         _generator = gen.get_train_generator(shuffle=False)
-        _predictions = model.predict_generator(_generator)
-        # append
-        predictions.extend(_predictions)
-        classes.extend(_classes)
+        predictions += list(model.predict_generator(_generator))
         # fit
         neigh.fit(predictions, classes)
-
+        # save
+        _path = model_params.tmp_data_path + 'preds_train.npy'
+        np.save(_path, np.array(predictions))
+        _path = model_params.tmp_data_path + 'labels_train.npy'
+        np.save(_path, np.array(classes))
+        import pickle
+        _path = model_params.tmp_data_path + 'model.pcl'
+        pickle.dump(neigh, open(_path, 'wb'))
 
     # test
     create_submission(gen, model, model_params, neigh)
@@ -237,16 +246,26 @@ def main(args):
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument(
+      "--fit",
+      type=bool,
+      default=True,
+      help="Hidden dim")
+  parser.add_argument(
       "--loss",
       type=str,
       choices=['categorical_crossentropy', 'triplet_semihard_loss'],
-      default="",
+      default="triplet_semihard_loss",
       help="Loss type / Model")
   parser.add_argument(
       "--embedding_hidden_dim",
       type=int,
       default=128,
       help="Hidden dim")
+  parser.add_argument(
+      "--triplet_margin",
+      type=float,
+      default=0.3,
+      help="Triplet loss margin")
   parser.add_argument(
       "--file_path",
       type=str,
@@ -265,7 +284,7 @@ if __name__ == "__main__":
   parser.add_argument(
       "--tmp_data_path",
       type=str,
-      default="/tmp/whales",
+      default="/tmp/whales/",
       help="Path to temp data")
   parser.add_argument(
       "--dropout",
@@ -301,7 +320,7 @@ if __name__ == "__main__":
   parser.add_argument(
       "--lr_rate",
       type=float,
-      default=5e-3)
+      default=5e-4)
   parser.add_argument(
       "--nb_layers_to_freeze",
       type=int,

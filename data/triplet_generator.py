@@ -73,7 +73,7 @@ class TripletGenerator(Sequence):
         self.classes = np.array([self.class_indices[cls] for cls in classes])
         self.filenames = np.array(self.df['Image'])
 
-        self.class_indices_subset = {k : v for k, v in self.class_inv_indices.items() if k in self.classes}
+        self.class_indices_subset = {k: v for k, v in self.class_inv_indices.items() if k in self.classes}
 
         kwargs.update({'preprocessing_function': _preprocess_input})
         logger.info(kwargs)
@@ -139,7 +139,7 @@ class TripletGenerator(Sequence):
             if len(filenames) > self.nb_images_per_class_batch:
                 np.random.shuffle(filenames)
                 filenames = filenames[:self.nb_images_per_class_batch]
-            logger.info("{} files for class {}".format(len(filenames), class_ix))
+            logger.debug("{} files for class {}".format(len(filenames), class_ix))
             for j, filename in enumerate(filenames):
                 img = load_img(os.path.join(self.image_path, filename),
                                target_size=self.target_size)
@@ -164,6 +164,7 @@ class TripletGenerator(Sequence):
         batch_x = np.vstack(batch_x)
         # build batch of labels
         batch_y = np.repeat(index_array, self.nb_images_per_class_batch)
+        batch_y = to_categorical(batch_y, num_classes=len(self.class_indices))
         assert len(batch_y), len(batch_x)
         return batch_x, batch_y
 
