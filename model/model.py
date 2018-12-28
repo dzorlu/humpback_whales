@@ -51,6 +51,12 @@ def create_model_fn(params):
                                                              weights=_weights,
                                                              classes=params.nb_classes)
         reshape_size = 2048
+    elif params.model_architecture == 'densenet':
+        base_model = tf.keras.applications.densenet.DenseNet121(input_shape=params.image_dim,
+                                                                include_top=_include_top,
+                                                                weights=_weights,
+                                                                classes=params.nb_classes)
+        reshape_size = 1024
     else:
         raise ValueError("architecture not defined.")
     # If triplet loss, complete the structure

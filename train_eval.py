@@ -83,7 +83,7 @@ def create_submission(generator, model, model_params, nn_classifier=None):
     print("{} predictions persisted..".format(len(submission)))
 
 
-def get_callbacks(model_params, patience=2):
+def get_callbacks(model_params, patience=3):
     weight_path = model_params.tmp_data_path + "{}_{}_weights.best.hdf5".format(model_params.loss, model_params.model_architecture)
 
     checkpoint = ModelCheckpoint(weight_path, monitor='val_loss', verbose=1,
@@ -92,7 +92,7 @@ def get_callbacks(model_params, patience=2):
     early = EarlyStopping(monitor="val_loss",
                           min_delta=0.0,
                           mode="min",
-                          patience=patience*3)
+                          patience=patience*5)
 
     embeddings_freq = 0
     embeddings_layer_names = None
@@ -264,7 +264,7 @@ if __name__ == "__main__":
   parser.add_argument(
       "--triplet_margin",
       type=float,
-      default=0.3,
+      default=1.0,
       help="Triplet loss margin")
   parser.add_argument(
       "--file_path",
@@ -315,7 +315,7 @@ if __name__ == "__main__":
       "--lr_policy",
       choices=['cosine_rate_policy', 'range_test', 'reduce'],
       type=str,
-      default='cosine_rate_policy',
+      default='reduce',
       help="lr policy")
   parser.add_argument(
       "--lr_rate",
