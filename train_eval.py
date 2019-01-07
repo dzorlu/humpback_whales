@@ -16,6 +16,10 @@ from model.model import create_model_fn
 from data.generator import Generator
 from data.triplet_generator import TripletGenerator
 
+def duplicate_image_finder():
+    pass
+
+
 
 class LearningRateRangeTest(callbacks.Callback):
     def __init__(self, total_nb_steps, base_rate=10e-5, max_rate=10e0):
@@ -73,8 +77,6 @@ def create_submission(generator, model, model_params, nn_classifier=None):
         c_pred = np.argsort(-1 * c_pred)[:4]
         # this always appends 'new whale'.
         preds_out.append([generator.class_inv_indices[p] for p in c_pred]+['new_whale'])
-    print(len(preds_out))
-    print(len(img_names))
     preds = [' '.join([col for col in row]) for row in preds_out]
     submission = pd.DataFrame(np.array([img_names, preds]).T, columns=['Image', 'Id'])
     ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
@@ -206,10 +208,10 @@ def main(args):
     neigh = None
     if model_params.loss == 'triplet_semihard_loss':
         from sklearn.neighbors import KNeighborsClassifier
-        nb_neighbors = 3
+        nb_neighbors = 1
         neigh = KNeighborsClassifier(nb_neighbors)
         # need to train a NN classifier with embeddings for inference at test time.
-        # no augmentation
+        # no augmentation. All training images here.
         gen = Generator(file_path=model_params.file_path,
                         image_path=model_params.image_train_path,
                         image_test_path=model_params.image_test_path,
@@ -218,16 +220,6 @@ def main(args):
         # this need to line up with labels. hence no shuffle.
         _generator = gen.get_train_generator(shuffle=False)
         predictions = list(model.predict_generator(_generator))
-        # augment on
-        gen = Generator(file_path=model_params.file_path,
-                        image_path=model_params.image_train_path,
-                        image_test_path=model_params.image_test_path,
-                        batch_size=model_params.batch_size,
-                        **data_params)
-        classes += list(gen.classes)
-        # this need to line up with labels. hence no shuffle.
-        _generator = gen.get_train_generator(shuffle=False)
-        predictions += list(model.predict_generator(_generator))
         # fit
         neigh.fit(predictions, classes)
         # save

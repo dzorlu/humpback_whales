@@ -14,16 +14,11 @@ One way to think about this approach if that the model effectively trains to be 
 only few examples and produce a predictor that can be applied to new examples. Due to this analogy, training under the
 paradigm is referred to as meta-learning.
 
-There are three common approaches to meta-learning.
-
-1) metric-based
-2) model-based
-3) optimization-based
-
-A great detailed post about meta-learning can be found here (3).
 
 For the particular task at hand -whale classification-, we want to learn an embedding function that embeds examples
-belonging to the same class close together while keeping embeddings from separate classes far apart (1), which is metric-based.
+belonging to the same class close together while keeping embeddings from separate classes far apart (1). The first
+implementation is also called a metric-based method. A great detailed post about meta-learning can be found here (3).
+
 
 To achieve
 this goal, I use triplet loss detailed in (2). [Triplet generator]
@@ -43,10 +38,10 @@ the test images but we still need to find the closest cluster/class the image be
 
 
 
-
 Ensembles
 ---------
 
+Reptile. Always include `new_whale` class.
 
 
 
@@ -57,7 +52,11 @@ Ensembles
 
 
 (5)
+
 (4)
+
 (3) https://lilianweng.github.io/lil-log/2018/11/30/meta-learning.html
+
 (1) Meta-Learning for Semi-Supervised Few-Shot Classification
+
 (2) In Defense of Triplet Loss for Person Re-Identification
