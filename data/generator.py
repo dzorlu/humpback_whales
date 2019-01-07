@@ -49,6 +49,7 @@ class Generator(object):
                  class_weight_type=None,
                  **kwargs):
         self.target_size = target_size
+        self._validation_split = validation_split
         self.batch_size = batch_size
         self.image_path = image_path
         self.image_test_path = image_test_path
@@ -79,6 +80,10 @@ class Generator(object):
         logger.info(kwargs)
         self.image_generator = ImageDataGenerator(**kwargs)
         self.image_generator_inference = ImageDataGenerator(preprocessing_function=_preprocess_input)
+
+    @property
+    def validation_split(self):
+        return self._validation_split
 
     def get_test_images_and_names(self):
         img_names = os.listdir(self.image_test_path)
