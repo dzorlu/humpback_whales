@@ -26,8 +26,7 @@ For the particular task at hand -whale classification-, we want to learn an embe
 belonging to the same class close together while keeping embeddings from separate classes far apart (1), which is metric-based.
 
 To achieve
-this goal, I use triplet loss detailed in (2). (Triplet generator)
-[https://github.com/dzorlu/humpback_whales/blob/master/data/triplet_generator.py] generates triplets to pass on the
+this goal, I use triplet loss detailed in (2). [Triplet generator](https://github.com/dzorlu/humpback_whales/blob/master/data/triplet_generator.py) generates triplets to pass on the
 model architecture by passing P classes and K images of each class. Because many classes only contain a single image,
 if there aren't enough images avaiable for a class, the generator creates augmented images to produce K images in total.
 I chose to exclude `new_whales` class because it is a catch-all class, and the images are not expected to form a
