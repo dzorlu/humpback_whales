@@ -14,7 +14,7 @@ One way to think about this approach if that the model effectively trains to be 
 only few examples and produce a predictor that can be applied to new examples. Due to this analogy, training under the
 paradigm is referred to as meta-learning.
 
-A great detailed post about meta-learning can be found here [3](https://lilianweng.github.io/lil-log/2018/11/30/meta-learning.html).
+A great detailed post about meta-learning can be found [here](https://lilianweng.github.io/lil-log/2018/11/30/meta-learning.html).
 
 For the particular task at hand -whale classification-, we want to learn an embedding function that embeds examples
 belonging to the same class close together while keeping embeddings from separate classes far apart [1](Meta-Learning for Semi-Supervised Few-Shot Classification), which is metric-based.
