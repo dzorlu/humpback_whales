@@ -163,8 +163,9 @@ class TripletGenerator(Sequence):
             batch_x.append(_samples)
         batch_x = np.vstack(batch_x)
         # build batch of labels
-        batch_y = np.repeat(index_array, self.nb_images_per_class_batch)
-        batch_y = to_categorical(batch_y, num_classes=len(self.class_indices))
+        # TODO: THis is hardcoded for REPTILE
+        batch_y = np.repeat(range(10), self.nb_images_per_class_batch)
+        batch_y = to_categorical(batch_y, num_classes=10)
         assert len(batch_y), len(batch_x)
         return batch_x, batch_y
 

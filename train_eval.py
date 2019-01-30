@@ -16,9 +16,13 @@ from model.model import create_model_fn
 from data.generator import Generator
 from data.triplet_generator import TripletGenerator
 
-def duplicate_image_finder():
-    pass
 
+
+
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class LearningRateRangeTest(callbacks.Callback):
@@ -63,6 +67,9 @@ class CosineLearninRatePolicy(callbacks.Callback):
 
 
 def create_submission(generator, model, model_params, nn_classifier=None):
+    import json
+    with open(model_params.tmp_data_path + 'dups.json', 'r') as f:
+        duplicate_test_image_dict = json.load(f)
     x, img_names = generator.get_test_images_and_names()
     # no shuffling ensures order
     test_generator = generator.get_test_generator(x)
@@ -73,10 +80,20 @@ def create_submission(generator, model, model_params, nn_classifier=None):
     if model_params.loss == 'triplet_semihard_loss':
         # postprocessing step with NN classifier.
         preds = nn_classifier.predict_proba(preds)
-    for c_pred in preds:
+    for c_pred, img_name in zip(preds, img_names):
         c_pred = np.argsort(-1 * c_pred)[:4]
         # this always appends 'new whale'.
-        preds_out.append([generator.class_inv_indices[p] for p in c_pred]+['new_whale'])
+        _preds = [generator.class_inv_indices[p] for p in c_pred]
+        if img_name in duplicate_test_image_dict:
+            print(img_name)
+            _classes = duplicate_test_image_dict[img_name][:4]
+            print(_classes)
+            _classes += _preds
+            _classes = _classes[:4]
+        else:
+            _classes = _preds
+        #TODO: This allows multiple new_whales
+        preds_out.append(['new_whale']+_classes)
     preds = [' '.join([col for col in row]) for row in preds_out]
     submission = pd.DataFrame(np.array([img_names, preds]).T, columns=['Image', 'Id'])
     ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
@@ -88,10 +105,12 @@ def create_submission(generator, model, model_params, nn_classifier=None):
 def get_callbacks(model_params, patience=3):
     weight_path = model_params.tmp_data_path + "{}_{}_weights.best.hdf5".format(model_params.loss, model_params.model_architecture)
 
-    checkpoint = ModelCheckpoint(weight_path, monitor='val_loss', verbose=1,
+    monitor = 'val_loss'
+    logger.info('monitor: {}'.format(monitor))
+    checkpoint = ModelCheckpoint(weight_path, monitor=monitor, verbose=1,
                                  save_best_only=True, mode='min', period=1)
 
-    early = EarlyStopping(monitor="val_loss",
+    early = EarlyStopping(monitor=monitor,
                           min_delta=0.0,
                           mode="min",
                           patience=patience*5)
@@ -116,7 +135,7 @@ def get_callbacks(model_params, patience=3):
                                             max_rate=model_params.lr_rate)
     else:
         min_lr_rate = model_params.lr_rate / 10
-        lr_policy = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=patience,
+        lr_policy = ReduceLROnPlateau(monitor=monitor, factor=0.5, patience=patience,
                                       verbose=1, mode='auto', cooldown=3, min_lr=min_lr_rate)
     callbacks_list = [checkpoint, early]
     callbacks_list += [lr_policy]
@@ -128,7 +147,7 @@ def get_callbacks(model_params, patience=3):
 
 def main(args):
     model_params = tf.contrib.training.HParams(
-        fit=FLAGS.fit,
+        fit=True,
         file_path=FLAGS.file_path,
         image_train_path=FLAGS.image_train_path,
         image_test_path=FLAGS.image_test_path,
@@ -152,7 +171,7 @@ def main(args):
         'rotation_range': 20,
         'width_shift_range': 0.1,
         'height_shift_range': 0.1,
-        'zoom_range': 0.3,
+        'zoom_range': 0.2,
         'shear_range': 0.4,
        }
 
@@ -162,6 +181,7 @@ def main(args):
                         image_path=model_params.image_train_path,
                         image_test_path=model_params.image_test_path,
                         batch_size=model_params.batch_size,
+                        validation_split=0.2,
                         **data_params)
         model_params.add_hparam('nb_classes', gen.get_nb_classes())
         model_params.add_hparam('image_dim', gen.target_size)
@@ -210,6 +230,7 @@ def main(args):
         from sklearn.neighbors import KNeighborsClassifier
         nb_neighbors = 1
         neigh = KNeighborsClassifier(nb_neighbors)
+        # TODO: Protypical. Take cluster means for each class.
         # need to train a NN classifier with embeddings for inference at test time.
         # no augmentation. All training images here.
         gen = Generator(file_path=model_params.file_path,
@@ -241,7 +262,7 @@ if __name__ == "__main__":
       "--fit",
       type=bool,
       default=True,
-      help="Hidden dim")
+      help="Inference or Fit")
   parser.add_argument(
       "--loss",
       type=str,
@@ -312,7 +333,7 @@ if __name__ == "__main__":
   parser.add_argument(
       "--lr_rate",
       type=float,
-      default=5e-4)
+      default=1e-4)
   parser.add_argument(
       "--nb_layers_to_freeze",
       type=int,
