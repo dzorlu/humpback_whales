@@ -66,42 +66,6 @@ class CosineLearninRatePolicy(callbacks.Callback):
         K.set_value(self.model.optimizer.lr, _lr)
 
 
-def create_submission(generator, model, model_params, nn_classifier=None):
-    import json
-    with open(model_params.tmp_data_path + 'dups.json', 'r') as f:
-        duplicate_test_image_dict = json.load(f)
-    x, img_names = generator.get_test_images_and_names()
-    # no shuffling ensures order
-    test_generator = generator.get_test_generator(x)
-    preds = model.predict_generator(test_generator)
-    _path = model_params.tmp_data_path + 'preds_test.npy'
-    np.save(_path, preds)
-    preds_out = []
-    if model_params.loss == 'triplet_semihard_loss':
-        # postprocessing step with NN classifier.
-        preds = nn_classifier.predict_proba(preds)
-    for c_pred, img_name in zip(preds, img_names):
-        c_pred = np.argsort(-1 * c_pred)[:4]
-        # this always appends 'new whale'.
-        _preds = [generator.class_inv_indices[p] for p in c_pred]
-        if img_name in duplicate_test_image_dict:
-            print(img_name)
-            _classes = duplicate_test_image_dict[img_name][:4]
-            print(_classes)
-            _classes += _preds
-            _classes = _classes[:4]
-        else:
-            _classes = _preds
-        #TODO: This allows multiple new_whales
-        preds_out.append(['new_whale']+_classes)
-    preds = [' '.join([col for col in row]) for row in preds_out]
-    submission = pd.DataFrame(np.array([img_names, preds]).T, columns=['Image', 'Id'])
-    ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    filepath = os.path.join(model_params.tmp_data_path, "submission_{}_{}.csv".format(model_params.model_architecture, ts))
-    submission.to_csv(filepath, index=False)
-    print("{} predictions persisted..".format(len(submission)))
-
-
 def get_callbacks(model_params, patience=3):
     weight_path = model_params.tmp_data_path + "{}_{}_weights.best.hdf5".format(model_params.loss, model_params.model_architecture)
 
@@ -225,36 +189,63 @@ def main(args):
     eval_res = model.evaluate_generator(eval_generator)
     print('eval {}'.format(eval_res))
 
-    neigh = None
-    if model_params.loss == 'triplet_semihard_loss':
-        from sklearn.neighbors import KNeighborsClassifier
-        nb_neighbors = 1
-        neigh = KNeighborsClassifier(nb_neighbors)
-        # TODO: Protypical. Take cluster means for each class.
-        # need to train a NN classifier with embeddings for inference at test time.
-        # no augmentation. All training images here.
-        gen = Generator(file_path=model_params.file_path,
-                        image_path=model_params.image_train_path,
-                        image_test_path=model_params.image_test_path,
-                        batch_size=model_params.batch_size)
-        classes = list(gen.classes)
-        # this need to line up with labels. hence no shuffle.
-        _generator = gen.get_train_generator(shuffle=False)
-        predictions = list(model.predict_generator(_generator))
-        # fit
-        neigh.fit(predictions, classes)
-        # save
-        _path = model_params.tmp_data_path + 'preds_train.npy'
-        np.save(_path, np.array(predictions))
-        _path = model_params.tmp_data_path + 'labels_train.npy'
-        np.save(_path, np.array(classes))
-        import pickle
-        _path = model_params.tmp_data_path + 'model.pcl'
-        pickle.dump(neigh, open(_path, 'wb'))
+
+    from sklearn.neighbors import KNeighborsClassifier
+    nb_neighbors = 1
+    neigh = KNeighborsClassifier(nb_neighbors)
+    # TODO: Protypical. Take cluster means for each class.
+    # need to train a NN classifier with embeddings for inference at test time.
+    # no augmentation. All training images here.
+    gen = Generator(file_path=model_params.file_path,
+                    image_path=model_params.image_train_path,
+                    image_test_path=model_params.image_test_path,
+                    batch_size=model_params.batch_size)
+    classes = list(gen.classes)
+    # this need to line up with labels. hence no shuffle.
+    _generator = gen.get_train_generator(shuffle=False)
+    predictions = list(model.predict_generator(_generator))
+    # fit
+    neigh.fit(predictions, classes)
+    # save
+    _path = model_params.tmp_data_path + 'preds_train.npy'
+    np.save(_path, np.array(predictions))
+    _path = model_params.tmp_data_path + 'labels_train.npy'
+    np.save(_path, np.array(classes))
+    import pickle
+    _path = model_params.tmp_data_path + 'model.pcl'
+    pickle.dump(neigh, open(_path, 'wb'))
 
     # test
-    create_submission(gen, model, model_params, neigh)
+    x, img_names = gen.get_test_images_and_names()
+    # no shuffling ensures order
+    test_generator = gen.get_test_generator(x)
+    preds = model.predict_generator(test_generator)
+    _path = model_params.tmp_data_path + 'preds_test.npy'
+    np.save(_path, preds)
+    if model_params.loss == 'triplet_semihard_loss':
+        # postprocessing step with NN classifier.
+        preds = neigh.predict_proba(preds)
+        # ensemble
+        ensemble_preds = reptile_inference(model_params, preds)
+    create_submission(model_params, ensemble_preds, img_names, gen)
 
+def reptile_inference(**kwargs):
+    pass
+
+
+def create_submission(model_params, preds_out, img_names, gen):
+    preds_class_names = []
+    for c_pred, img_name in zip(preds_out, img_names):
+        # this always appends 'new whale'. drop the 5th and replace with new_whale
+        _classes = [gen.class_inv_indices[p] for p in c_pred[:4]]
+        #TODO: This allows multiple new_whales
+        preds_class_names.append(['new_whale'] + _classes)
+    preds = [' '.join([col for col in row]) for row in preds_class_names]
+    submission = pd.DataFrame(np.array([img_names, preds]).T, columns=['Image', 'Id'])
+    ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    filepath = os.path.join(model_params.tmp_data_path, "submission_{}_{}.csv".format(model_params.model_architecture, ts))
+    submission.to_csv(filepath, index=False)
+    print("{} predictions persisted..".format(len(submission)))
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()

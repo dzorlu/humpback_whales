@@ -119,6 +119,9 @@ class TripletGenerator(Sequence):
         """
         self._set_index_array()
 
+    def get_train_image_from_class_ix(self, ixs):
+        return self._get_batches_of_transformed_samples(ixs)
+
     def __getitem__(self, idx):
         if self.index_array is None:
             self._set_index_array()
@@ -163,7 +166,7 @@ class TripletGenerator(Sequence):
             batch_x.append(_samples)
         batch_x = np.vstack(batch_x)
         # build batch of labels
-        # TODO: THis is hardcoded for REPTILE
+        # TODO: This is hardcoded for REPTILE
         batch_y = np.repeat(range(10), self.nb_images_per_class_batch)
         batch_y = to_categorical(batch_y, num_classes=10)
         assert len(batch_y), len(batch_x)
