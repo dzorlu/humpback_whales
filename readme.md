@@ -1,8 +1,7 @@
 `   `
-[WIP]
-Pre-trained networks
------------------
 
+Whale Identification Challenge
+-----------------
 
 
 Few-shot learning
