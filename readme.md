@@ -38,7 +38,7 @@ On top of the MobileNet / K-neigbors classifier structure, I also trained an opt
 when we optimize these parameters at test time, learning is fast - the model generalizes from a small number of examples
  from the test task. The module is trained with 5-shot 10-class classification tasks at training time. At test time,
  the trained model takes the top 10 predictions of the first module, and re-ranks them at test time through one-shot learning.
- With the ensemble approach, I was able to get a better score. 
+ With the ensemble approach, I was able to get a respectable improvement over the non-ensemble approach. 
  
 
 Last, an excellent tutorial on meta-learning can be found [here](https://lilianweng.github.io/lil-log/2018/11/30/meta-learning.html).
