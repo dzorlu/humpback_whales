@@ -35,6 +35,7 @@ class TripletGenerator(Sequence):
                  subset='training',
                  validation_split=0.0,
                  seed=42,
+                 is_reptile=False,
                  shuffle=True,
                  excluded_classes=['new_whale'],
                  class_weight_type=None,
@@ -50,6 +51,7 @@ class TripletGenerator(Sequence):
         self.df = pd.read_csv(file_path)
         self.index_array = None
         self.lock = threading.Lock()
+        self.is_reptile = is_reptile
 
         logger.info('exclude_class: {}'.format(excluded_classes))
         logger.info('class_weight_type: {}'.format(class_weight_type))
@@ -166,9 +168,10 @@ class TripletGenerator(Sequence):
             batch_x.append(_samples)
         batch_x = np.vstack(batch_x)
         # build batch of labels
-        # TODO: This is hardcoded for REPTILE
-        batch_y = np.repeat(range(10), self.nb_images_per_class_batch)
-        batch_y = to_categorical(batch_y, num_classes=10)
+        _labels = range(10) if self.is_reptile else index_array
+        batch_y = np.repeat(_labels, self.nb_images_per_class_batch)
+        if self.is_reptile:
+            batch_y = to_categorical(batch_y, num_classes=10)
         assert len(batch_y), len(batch_x)
         return batch_x, batch_y
 

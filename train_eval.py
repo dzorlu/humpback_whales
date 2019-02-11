@@ -7,63 +7,18 @@ import os
 import tensorflow as tf
 from tensorflow.keras.callbacks import  ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras import callbacks
-from tensorflow.python.keras import backend as K
-import numpy as np
 import pandas as pd
 
-
+from learning_rates import LearningRateRangeTest, CosineLearninRatePolicy
+from model.reptile import *
 from model.model import create_model_fn
 from data.generator import Generator
 from data.triplet_generator import TripletGenerator
-
-
-
 
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-class LearningRateRangeTest(callbacks.Callback):
-    def __init__(self, total_nb_steps, base_rate=10e-5, max_rate=10e0):
-        self.max_rate = np.log10(max_rate)
-        self.base_rate = np.log10(base_rate)
-        self.total_nb_steps = float(total_nb_steps)
-        self.steps_taken = 0
-        super(LearningRateRangeTest, self).__init__()
-
-    def on_train_begin(self, logs=None):
-        K.set_value(self.model.optimizer.lr, 10 ** self.base_rate)
-
-    def on_batch_end(self, batch, logs=None):
-        logs = logs or {}
-        self.steps_taken += 1
-        _lr = 10 ** (self.base_rate * (1 - self.steps_taken / self.total_nb_steps))
-        logs['lr'] = np.float64(_lr)
-        K.set_value(self.model.optimizer.lr, np.float64(_lr))
-
-
-class CosineLearninRatePolicy(callbacks.Callback):
-    def __init__(self, max_rate, total_nb_steps):
-        self.base_rate = max_rate / 10
-        self.max_rate = max_rate
-        self.steps_taken = 0
-        self.cycle_length = float(total_nb_steps) / 2 # nb steps per epoch / 2
-        super(CosineLearninRatePolicy, self).__init__()
-
-    def on_train_begin(self, logs=None):
-        K.set_value(self.model.optimizer.lr, self.max_rate)
-        # for tensorboard
-        logs['lr'] = np.float64(self.max_rate)
-
-    def on_batch_end(self, batch, logs=None):
-        self.steps_taken += 1
-        _scaler = (1 + np.cos(np.pi * self.steps_taken / self.cycle_length)) / 2
-        _lr = self.base_rate + (self.max_rate - self.base_rate) * _scaler
-        # for tensorboard
-        logs['lr'] = np.float64(_lr)
-        K.set_value(self.model.optimizer.lr, _lr)
 
 
 def get_callbacks(model_params, patience=3):
@@ -177,18 +132,18 @@ def main(args):
 
     _callbacks, weight_path = get_callbacks(model_params)
     model = create_model_fn(model_params)
-
-    if model_params.fit:
+    if model_params.train_reptile:
+        train_reptile(model_params)
+    elif model_params.fit:
         model.fit_generator(generator=train_generator,
                             validation_data=eval_generator,
                             use_multiprocessing=True,
                             epochs=model_params.nb_epochs,
                             callbacks=_callbacks)
-    # evaluate
-    model.load_weights(weight_path)
-    eval_res = model.evaluate_generator(eval_generator)
-    print('eval {}'.format(eval_res))
-
+        # evaluate
+        model.load_weights(weight_path)
+        eval_res = model.evaluate_generator(eval_generator)
+        print('eval {}'.format(eval_res))
 
     from sklearn.neighbors import KNeighborsClassifier
     nb_neighbors = 1
@@ -206,11 +161,6 @@ def main(args):
     predictions = list(model.predict_generator(_generator))
     # fit
     neigh.fit(predictions, classes)
-    # save
-    _path = model_params.tmp_data_path + 'preds_train.npy'
-    np.save(_path, np.array(predictions))
-    _path = model_params.tmp_data_path + 'labels_train.npy'
-    np.save(_path, np.array(classes))
     import pickle
     _path = model_params.tmp_data_path + 'model.pcl'
     pickle.dump(neigh, open(_path, 'wb'))
@@ -220,17 +170,12 @@ def main(args):
     # no shuffling ensures order
     test_generator = gen.get_test_generator(x)
     preds = model.predict_generator(test_generator)
-    _path = model_params.tmp_data_path + 'preds_test.npy'
-    np.save(_path, preds)
     if model_params.loss == 'triplet_semihard_loss':
         # postprocessing step with NN classifier.
         preds = neigh.predict_proba(preds)
         # ensemble
-        ensemble_preds = reptile_inference(model_params, preds)
+        ensemble_preds = inference_reptile(model_params, gen,  test_generator, preds)
     create_submission(model_params, ensemble_preds, img_names, gen)
-
-def reptile_inference(**kwargs):
-    pass
 
 
 def create_submission(model_params, preds_out, img_names, gen):
@@ -246,6 +191,7 @@ def create_submission(model_params, preds_out, img_names, gen):
     filepath = os.path.join(model_params.tmp_data_path, "submission_{}_{}.csv".format(model_params.model_architecture, ts))
     submission.to_csv(filepath, index=False)
     print("{} predictions persisted..".format(len(submission)))
+
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
