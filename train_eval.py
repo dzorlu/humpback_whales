@@ -175,7 +175,7 @@ def main(args):
         preds = neigh.predict_proba(preds)
         # ensemble
         ensemble_preds = inference_reptile(model_params, gen,  test_generator, preds)
-    create_submission(model_params, ensemble_preds, img_names, gen)
+        create_submission(model_params, ensemble_preds, img_names, gen)
 
 
 def create_submission(model_params, preds_out, img_names, gen):

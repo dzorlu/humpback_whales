@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def top_5_accuracy(x, y): return top_k_categorical_accuracy(x, y, 5)
 
 
-def create_model_fn(params):
+def create_model_fn(params, is_optimizer_adam=True):
     """
     create model function and callbacks given the params
     :return:
@@ -136,7 +136,12 @@ def create_model_fn(params):
                 logger.info(layer.name)
         logger.info("{} out of {} layers frozen..".format(params.nb_layers_to_freeze, i))
 
-    model.compile(optimizer=Adam(lr=params.lr_rate),
+    if is_optimizer_adam:
+        _opt = Adam(lr=params.lr_rate)
+    else:
+        _opt = sgd
+
+    model.compile(optimizer=_opt,
                   loss=_loss,
                   metrics=_metrics
                   )

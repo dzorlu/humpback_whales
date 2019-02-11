@@ -36,6 +36,7 @@ def train_reptile(model_params, outer_step_size=0.02, steps=5):
                                        nb_images_per_class_batch=5,
                                        validation_split=0.2,
                                        subset='training',
+                                       is_reptile=True,
                                        **data_params)
     eval_generator = TripletGenerator(file_path=model_params.file_path,
                                       image_path=model_params.image_train_path,
@@ -44,9 +45,10 @@ def train_reptile(model_params, outer_step_size=0.02, steps=5):
                                       nb_images_per_class_batch=5,
                                       validation_split=0.2,
                                       subset='eval',
+                                      is_reptile=True,
                                       **data_params)
 
-    model = create_model_fn(model_params)
+    model = create_model_fn(model_params, is_optimizer_adam=False)
 
     nb_steps_per_epoch = len(train_generator)
     nb_steps_per_epoch_val = len(eval_generator)
