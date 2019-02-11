@@ -37,7 +37,7 @@ On top of the MobileNet / K-neigbors classifier structure, I also trained an opt
 [Reptile](https://arxiv.org/abs/1803.02999). The idea here is to find an initialization for the parameters such that
 when we optimize these parameters at test time, learning is fast - the model generalizes from a small number of examples
  from the test task. The module is trained with 5-shot 10-class classification tasks at training time. At test time,
- the trained model takes the top 10 predictions of the first module, and re-ranks them at test time through one-shot learning.
+ the trained model takes the top 10 predictions of the first module, and re-ranks them through one-shot learning.
  With the ensemble approach, I was able to get a respectable improvement over the non-ensemble approach. 
  
 
